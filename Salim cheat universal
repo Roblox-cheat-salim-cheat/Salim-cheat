@@ -1,0 +1,598 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local GuiService = game:GetService("GuiService")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- CONFIG
+local aimAssist = false
+local showFOV = true
+local espEnabled = false
+local tracersEnabled = false
+local FOV = 120
+local aimStrength = 1
+local fovLocked = true
+
+local customFovX = nil
+local customFovY = nil
+
+local espObjects = {}
+local tracerLines = {}
+
+-- =====================
+-- GUI
+-- =====================
+local oldGui = game:GetService("CoreGui"):FindFirstChild("AimMenu")
+if oldGui then oldGui:Destroy() end
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "AimMenu"
+gui.ResetOnSpawn = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.IgnoreGuiInset = true
+
+local success = pcall(function()
+    gui.Parent = game:GetService("CoreGui")
+end)
+
+if not success then
+    pcall(function()
+        if gethui then
+            gui.Parent = gethui()
+        else
+            gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+        end
+    end)
+end
+
+local function getGameCenter()
+    local guiInset = GuiService:GetGuiInset()
+    local viewportSize = Camera.ViewportSize
+    return viewportSize.X / 2, (viewportSize.Y / 2) + guiInset.Y
+end
+
+-- =====================
+-- FRAME PRINCIPAL (BAS DROITE, AU DESSUS DE LA BARRE)
+-- =====================
+local frame = Instance.new("Frame", gui)
+frame.Size = UDim2.new(0, 160, 0, 320)
+frame.Position = UDim2.new(1, -165, 1, -355) -- bas droite, au dessus de la titleBar
+frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+frame.BackgroundTransparency = 0.1
+frame.BorderSizePixel = 0
+frame.Visible = true
+frame.ZIndex = 10
+
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
+
+-- =====================
+-- BARRE DE TITRE (BAS DROITE, SOUS LE FRAME)
+-- =====================
+local titleBar = Instance.new("TextButton", gui)
+titleBar.Size = UDim2.new(0, 160, 0, 30)
+titleBar.Position = UDim2.new(1, -165, 1, -30) -- tout en bas à droite, 5px de marge du bas
+titleBar.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+titleBar.BackgroundTransparency = 0.3
+titleBar.Text = "▲ Salim Cheat 2.67"
+titleBar.TextColor3 = Color3.fromRGB(255, 100, 100)
+titleBar.Font = Enum.Font.GothamBold
+titleBar.TextSize = 12
+titleBar.BorderSizePixel = 0
+titleBar.AutoButtonColor = false
+titleBar.ZIndex = 10
+
+Instance.new("UICorner", titleBar).CornerRadius = UDim.new(0, 8)
+
+local title = Instance.new("TextLabel", frame)
+title.Size = UDim2.new(1, 0, 0, 25)
+title.Text = "Aim Menu"
+title.TextColor3 = Color3.new(1, 1, 1)
+title.BackgroundTransparency = 1
+title.Font = Enum.Font.GothamBold
+title.TextSize = 13
+title.ZIndex = 11
+
+local function createButton(parent, posY, text)
+    local btn = Instance.new("TextButton", parent)
+    btn.Size = UDim2.new(0.9, 0, 0, 30)
+    btn.Position = UDim2.new(0.05, 0, 0, posY)
+    btn.Text = text
+    btn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.Font = Enum.Font.Gotham
+    btn.TextSize = 11
+    btn.ZIndex = 11
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+    return btn
+end
+
+local aimButton = createButton(frame, 28, "Aim Assist : OFF")
+local fovButton = createButton(frame, 62, "FOV Visible : ON")
+local espButton = createButton(frame, 96, "ESP : OFF")
+local tracerButton = createButton(frame, 130, "Tracers : OFF")
+
+local fovBox = Instance.new("TextBox", frame)
+fovBox.Size = UDim2.new(0.9, 0, 0, 30)
+fovBox.Position = UDim2.new(0.05, 0, 0, 164)
+fovBox.PlaceholderText = "FOV: " .. FOV
+fovBox.Text = ""
+fovBox.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+fovBox.TextColor3 = Color3.new(1, 1, 1)
+fovBox.Font = Enum.Font.Gotham
+fovBox.TextSize = 11
+fovBox.ZIndex = 11
+Instance.new("UICorner", fovBox).CornerRadius = UDim.new(0, 6)
+
+local moveFovButton = createButton(frame, 198, "🔓 Déplacer FOV")
+moveFovButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+
+local resetFovButton = createButton(frame, 232, "🎯 Reset FOV centre")
+resetFovButton.BackgroundColor3 = Color3.fromRGB(80, 50, 50)
+
+local strengthLabel = Instance.new("TextLabel", frame)
+strengthLabel.Size = UDim2.new(0.9, 0, 0, 18)
+strengthLabel.Position = UDim2.new(0.05, 0, 0, 266)
+strengthLabel.Text = "Strength: " .. aimStrength
+strengthLabel.TextColor3 = Color3.new(1, 1, 1)
+strengthLabel.BackgroundTransparency = 1
+strengthLabel.Font = Enum.Font.Gotham
+strengthLabel.TextSize = 11
+strengthLabel.ZIndex = 11
+
+local infoLabel = Instance.new("TextLabel", frame)
+infoLabel.Size = UDim2.new(0.9, 0, 0, 18)
+infoLabel.Position = UDim2.new(0.05, 0, 0, 288)
+infoLabel.Text = "Maintenir barre = déplacer"
+infoLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+infoLabel.BackgroundTransparency = 1
+infoLabel.Font = Enum.Font.Gotham
+infoLabel.TextSize = 9
+infoLabel.ZIndex = 11
+
+-- =====================
+-- CERCLE FOV
+-- =====================
+local circle = Instance.new("Frame", gui)
+circle.Name = "FOVCircle"
+circle.AnchorPoint = Vector2.new(0.5, 0.5)
+circle.Size = UDim2.new(0, FOV * 2, 0, FOV * 2)
+circle.BackgroundTransparency = 1
+circle.ZIndex = 1
+
+local circleInner = Instance.new("Frame", circle)
+circleInner.Size = UDim2.new(1, 0, 1, 0)
+circleInner.BackgroundTransparency = 0.85
+circleInner.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+circleInner.BorderSizePixel = 0
+circleInner.ZIndex = 1
+
+Instance.new("UICorner", circleInner).CornerRadius = UDim.new(0.5, 0)
+
+local circleStroke = Instance.new("UIStroke", circleInner)
+circleStroke.Color = Color3.fromRGB(255, 0, 0)
+circleStroke.Thickness = 2
+circleStroke.Transparency = 0.3
+
+local centerDot = Instance.new("Frame", gui)
+centerDot.AnchorPoint = Vector2.new(0.5, 0.5)
+centerDot.Size = UDim2.new(0, 6, 0, 6)
+centerDot.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+centerDot.ZIndex = 2
+Instance.new("UICorner", centerDot).CornerRadius = UDim.new(0.5, 0)
+
+-- =====================
+-- INDICATEUR MODE DÉPLACEMENT
+-- =====================
+local moveIndicator = Instance.new("TextLabel", gui)
+moveIndicator.Size = UDim2.new(0, 250, 0, 35)
+moveIndicator.Position = UDim2.new(0.5, -125, 0, 10)
+moveIndicator.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
+moveIndicator.BackgroundTransparency = 0.2
+moveIndicator.Text = "👆 TOUCHE POUR PLACER LA FOV"
+moveIndicator.TextColor3 = Color3.new(1, 1, 1)
+moveIndicator.Font = Enum.Font.GothamBold
+moveIndicator.TextSize = 11
+moveIndicator.ZIndex = 20
+moveIndicator.Visible = false
+Instance.new("UICorner", moveIndicator).CornerRadius = UDim.new(0, 8)
+
+-- =====================
+-- DRAG MENU
+-- =====================
+local dragging = false
+local dragStart = nil
+local startTitlePos = nil
+local startFramePos = nil
+local hasDragged = false
+local DRAG_THRESHOLD = 10
+
+titleBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        hasDragged = false
+        dragStart = input.Position
+        startTitlePos = titleBar.AbsolutePosition
+        startFramePos = frame.AbsolutePosition
+    end
+end)
+
+titleBar.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+        if not hasDragged then
+            frame.Visible = not frame.Visible
+            titleBar.Text = frame.Visible and "▼ Salim Cheat 2.67" or "▲ Salim Cheat 2.67"
+        end
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStart
+
+        if delta.Magnitude >= DRAG_THRESHOLD then
+            hasDragged = true
+        end
+
+        if hasDragged then
+            titleBar.Position = UDim2.new(0, startTitlePos.X + delta.X, 0, startTitlePos.Y + delta.Y)
+            frame.Position = UDim2.new(0, startFramePos.X + delta.X, 0, startFramePos.Y + delta.Y)
+        end
+    end
+end)
+
+-- =====================
+-- DRAG FOV
+-- =====================
+local fovDragging = false
+
+UserInputService.InputBegan:Connect(function(input)
+    if not fovLocked and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1) then
+        local touchPos = input.Position
+        local titleAbsPos = titleBar.AbsolutePosition
+        local titleAbsSize = titleBar.AbsoluteSize
+        local frameAbsPos = frame.AbsolutePosition
+        local frameAbsSize = frame.AbsoluteSize
+
+        local onTitle = touchPos.X >= titleAbsPos.X and touchPos.X <= titleAbsPos.X + titleAbsSize.X
+            and touchPos.Y >= titleAbsPos.Y and touchPos.Y <= titleAbsPos.Y + titleAbsSize.Y
+
+        local onFrame = frame.Visible and touchPos.X >= frameAbsPos.X and touchPos.X <= frameAbsPos.X + frameAbsSize.X
+            and touchPos.Y >= frameAbsPos.Y and touchPos.Y <= frameAbsPos.Y + frameAbsSize.Y
+
+        if not onTitle and not onFrame then
+            fovDragging = true
+            customFovX = touchPos.X
+            customFovY = touchPos.Y
+            circle.Position = UDim2.new(0, customFovX, 0, customFovY)
+            centerDot.Position = UDim2.new(0, customFovX, 0, customFovY)
+        end
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if fovDragging and not fovLocked and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
+        customFovX = input.Position.X
+        customFovY = input.Position.Y
+        circle.Position = UDim2.new(0, customFovX, 0, customFovY)
+        centerDot.Position = UDim2.new(0, customFovX, 0, customFovY)
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if fovDragging and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1) then
+        fovDragging = false
+    end
+end)
+
+-- =====================
+-- ESP
+-- =====================
+local function createESP(player)
+    if player == LocalPlayer then return end
+
+    local highlight = Instance.new("Highlight")
+    highlight.FillColor = Color3.fromRGB(255, 0, 0)
+    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+    highlight.FillTransparency = 0.5
+    highlight.OutlineTransparency = 0
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+
+    local nameTag = Instance.new("BillboardGui")
+    nameTag.Size = UDim2.new(0, 100, 0, 40)
+    nameTag.StudsOffset = Vector3.new(0, 3, 0)
+    nameTag.AlwaysOnTop = true
+
+    local nameLabel = Instance.new("TextLabel", nameTag)
+    nameLabel.Size = UDim2.new(1, 0, 0.5, 0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    nameLabel.TextStrokeTransparency = 0.5
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.TextSize = 14
+    nameLabel.Text = player.Name
+
+    local healthLabel = Instance.new("TextLabel", nameTag)
+    healthLabel.Size = UDim2.new(1, 0, 0.5, 0)
+    healthLabel.Position = UDim2.new(0, 0, 0.5, 0)
+    healthLabel.BackgroundTransparency = 1
+    healthLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+    healthLabel.TextStrokeTransparency = 0.5
+    healthLabel.Font = Enum.Font.Gotham
+    healthLabel.TextSize = 12
+
+    espObjects[player] = {
+        highlight = highlight,
+        nameTag = nameTag,
+        healthLabel = healthLabel
+    }
+
+    local function updateESP()
+        if player.Character and espEnabled then
+            highlight.Parent = player.Character
+            nameTag.Parent = player.Character:FindFirstChild("Head")
+            local humanoid = player.Character:FindFirstChild("Humanoid")
+            if humanoid then
+                local health = math.floor(humanoid.Health)
+                local maxHealth = humanoid.MaxHealth
+                healthLabel.Text = health .. "/" .. maxHealth
+                local ratio = health / maxHealth
+                healthLabel.TextColor3 = Color3.fromRGB(255 * (1 - ratio), 255 * ratio, 0)
+            end
+        else
+            highlight.Parent = nil
+            nameTag.Parent = nil
+        end
+    end
+
+    player.CharacterAdded:Connect(function()
+        task.wait(0.5)
+        updateESP()
+    end)
+
+    updateESP()
+end
+
+local function removeESP(player)
+    if espObjects[player] then
+        espObjects[player].highlight:Destroy()
+        espObjects[player].nameTag:Destroy()
+        espObjects[player] = nil
+    end
+end
+
+-- =====================
+-- TRACERS
+-- =====================
+local function createTracer(player)
+    if player == LocalPlayer then return end
+
+    local line = Drawing.new("Line")
+    line.Visible = false
+    line.Color = Color3.fromRGB(255, 0, 0)
+    line.Thickness = 1
+    line.Transparency = 1
+
+    tracerLines[player] = line
+end
+
+local function removeTracer(player)
+    if tracerLines[player] then
+        tracerLines[player]:Remove()
+        tracerLines[player] = nil
+    end
+end
+
+for _, player in pairs(Players:GetPlayers()) do
+    createESP(player)
+    createTracer(player)
+end
+
+Players.PlayerAdded:Connect(function(player)
+    createESP(player)
+    createTracer(player)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    removeESP(player)
+    removeTracer(player)
+end)
+
+-- =====================
+-- BOUTONS EVENTS
+-- =====================
+aimButton.MouseButton1Click:Connect(function()
+    aimAssist = not aimAssist
+    aimButton.Text = "Aim Assist : " .. (aimAssist and "ON" or "OFF")
+    aimButton.BackgroundColor3 = aimAssist and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(60, 60, 60)
+end)
+
+fovButton.MouseButton1Click:Connect(function()
+    showFOV = not showFOV
+    fovButton.Text = "FOV Visible : " .. (showFOV and "ON" or "OFF")
+    circle.Visible = showFOV
+    centerDot.Visible = showFOV
+    fovButton.BackgroundColor3 = showFOV and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(60, 60, 60)
+end)
+
+espButton.MouseButton1Click:Connect(function()
+    espEnabled = not espEnabled
+    espButton.Text = "ESP : " .. (espEnabled and "ON" or "OFF")
+    espButton.BackgroundColor3 = espEnabled and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(60, 60, 60)
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and espObjects[player] then
+            if espEnabled and player.Character then
+                espObjects[player].highlight.Parent = player.Character
+                espObjects[player].nameTag.Parent = player.Character:FindFirstChild("Head")
+            else
+                espObjects[player].highlight.Parent = nil
+                espObjects[player].nameTag.Parent = nil
+            end
+        end
+    end
+end)
+
+tracerButton.MouseButton1Click:Connect(function()
+    tracersEnabled = not tracersEnabled
+    tracerButton.Text = "Tracers : " .. (tracersEnabled and "ON" or "OFF")
+    tracerButton.BackgroundColor3 = tracersEnabled and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(60, 60, 60)
+
+    if not tracersEnabled then
+        for _, line in pairs(tracerLines) do
+            line.Visible = false
+        end
+    end
+end)
+
+fovBox.FocusLost:Connect(function()
+    local num = tonumber(fovBox.Text)
+    if num and num > 0 and num <= 500 then
+        FOV = num
+        circle.Size = UDim2.new(0, FOV * 2, 0, FOV * 2)
+        fovBox.PlaceholderText = "FOV: " .. FOV
+    end
+    fovBox.Text = ""
+end)
+
+moveFovButton.MouseButton1Click:Connect(function()
+    fovLocked = not fovLocked
+
+    if fovLocked then
+        moveFovButton.Text = "🔓 Déplacer FOV"
+        moveFovButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+        moveIndicator.Visible = false
+        circleInner.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+        circleStroke.Color = Color3.fromRGB(255, 0, 0)
+        centerDot.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+    else
+        moveFovButton.Text = "🔒 Verrouiller FOV"
+        moveFovButton.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
+        moveIndicator.Visible = true
+        circleInner.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
+        circleStroke.Color = Color3.fromRGB(255, 165, 0)
+        centerDot.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
+    end
+end)
+
+resetFovButton.MouseButton1Click:Connect(function()
+    customFovX = nil
+    customFovY = nil
+    local cx, cy = getGameCenter()
+    circle.Position = UDim2.new(0, cx, 0, cy)
+    centerDot.Position = UDim2.new(0, cx, 0, cy)
+end)
+
+-- =====================
+-- GET CLOSEST PLAYER
+-- =====================
+local function getClosestPlayer()
+    local closest = nil
+    local shortest = FOV
+
+    local fovCenterX, fovCenterY
+    if customFovX and customFovY then
+        local guiInset = GuiService:GetGuiInset()
+        fovCenterX = customFovX
+        fovCenterY = customFovY - guiInset.Y
+    else
+        local viewportSize = Camera.ViewportSize
+        fovCenterX = viewportSize.X / 2
+        fovCenterY = viewportSize.Y / 2
+    end
+
+    local screenCenter = Vector2.new(fovCenterX, fovCenterY)
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local head = player.Character:FindFirstChild("Head")
+            local humanoid = player.Character:FindFirstChild("Humanoid")
+
+            if head and humanoid and humanoid.Health > 0 then
+                local pos, visible = Camera:WorldToViewportPoint(head.Position)
+
+                if visible then
+                    local screenPos = Vector2.new(pos.X, pos.Y)
+                    local dist = (screenPos - screenCenter).Magnitude
+
+                    if dist < shortest then
+                        shortest = dist
+                        closest = player
+                    end
+                end
+            end
+        end
+    end
+
+    return closest, shortest
+end
+
+-- =====================
+-- MAIN LOOP
+-- =====================
+RunService.RenderStepped:Connect(function()
+    if not customFovX or not customFovY then
+        local cx, cy = getGameCenter()
+        circle.Position = UDim2.new(0, cx, 0, cy)
+        centerDot.Position = UDim2.new(0, cx, 0, cy)
+    end
+
+    if aimAssist then
+        local target, distance = getClosestPlayer()
+
+        if target and target.Character then
+            local head = target.Character:FindFirstChild("Head")
+
+            if head then
+                local targetPos = head.Position
+                local currentPos = Camera.CFrame.Position
+                local newCFrame = CFrame.new(currentPos, targetPos)
+                Camera.CFrame = Camera.CFrame:Lerp(newCFrame, aimStrength)
+            end
+        end
+    end
+
+    if tracersEnabled then
+        local screenBottom = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+
+        for player, line in pairs(tracerLines) do
+            if player.Character then
+                local root = player.Character:FindFirstChild("HumanoidRootPart")
+                local humanoid = player.Character:FindFirstChild("Humanoid")
+
+                if root and humanoid and humanoid.Health > 0 then
+                    local pos, visible = Camera:WorldToViewportPoint(root.Position)
+
+                    if visible then
+                        line.From = screenBottom
+                        line.To = Vector2.new(pos.X, pos.Y)
+                        line.Visible = true
+                    else
+                        line.Visible = false
+                    end
+                else
+                    line.Visible = false
+                end
+            else
+                line.Visible = false
+            end
+        end
+    end
+
+    if espEnabled then
+        for player, esp in pairs(espObjects) do
+            if player.Character then
+                local humanoid = player.Character:FindFirstChild("Humanoid")
+                if humanoid then
+                    local health = math.floor(humanoid.Health)
+                    local maxHealth = humanoid.MaxHealth
+                    esp.healthLabel.Text = health .. "/" .. maxHealth
+                    local ratio = health / maxHealth
+                    esp.healthLabel.TextColor3 = Color3.fromRGB(255 * (1 - ratio), 255 * ratio, 0)
+                end
+            end
+        end
+    end
+end)
