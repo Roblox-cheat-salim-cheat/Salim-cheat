@@ -17,10 +17,36 @@ local aimStrength = 1
 local espObjects = {}
 local tracerLines = {}
 
--- GUI
-local gui = Instance.new("ScreenGui", LocalPlayer.PlayerGui)
+-- =====================
+-- GUI - FIX AFFICHAGE
+-- =====================
+-- Supprimer l'ancien GUI s'il existe
+local oldGui = game:GetService("CoreGui"):FindFirstChild("AimMenu")
+if oldGui then oldGui:Destroy() end
+
+local gui = Instance.new("ScreenGui")
 gui.Name = "AimMenu"
 gui.ResetOnSpawn = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+-- Essayer de mettre dans CoreGui (fonctionne avec la plupart des executeurs)
+local success, err = pcall(function()
+    gui.Parent = game:GetService("CoreGui")
+end)
+
+-- Si CoreGui échoue, essayer gethui() puis PlayerGui
+if not success then
+    local success2, err2 = pcall(function()
+        if gethui then
+            gui.Parent = gethui()
+        else
+            gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+        end
+    end)
+    if not success2 then
+        gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    end
+end
 
 -- Barre de titre (toujours visible)
 local titleBar = Instance.new("TextButton", gui)
@@ -28,7 +54,7 @@ titleBar.Size = UDim2.new(0, 200, 0, 30)
 titleBar.Position = UDim2.new(0.75, 0, 0.22, 0)
 titleBar.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
 titleBar.BackgroundTransparency = 0.3
-titleBar.Text = "Salim CHeAt 2.68"
+titleBar.Text = "Salim Cheat 2.67"
 titleBar.TextColor3 = Color3.fromRGB(255, 100, 100)
 titleBar.Font = Enum.Font.GothamBold
 titleBar.TextSize = 14
@@ -146,7 +172,7 @@ local dragStart = nil
 local startTitlePos = nil
 local startFramePos = nil
 local hasDragged = false
-local DRAG_THRESHOLD = 5 -- pixels minimum pour considérer comme un drag
+local DRAG_THRESHOLD = 5
 
 titleBar.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -161,7 +187,6 @@ end)
 titleBar.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         dragging = false
-        -- Si on n'a pas bougé (simple clic), toggle le menu
         if not hasDragged then
             frame.Visible = not frame.Visible
         end
@@ -172,7 +197,6 @@ UserInputService.InputChanged:Connect(function(input)
     if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
         local delta = input.Position - dragStart
 
-        -- Vérifier si on a assez bougé pour considérer comme un drag
         if delta.Magnitude >= DRAG_THRESHOLD then
             hasDragged = true
         end
@@ -295,7 +319,31 @@ end
 for _, player in pairs(Players:GetPlayers()) do
     createESP(player)
     createTracer(player)
-end 0) or Color3.fromRGB(60, 60, 60)
+end
+
+Players.PlayerAdded:Connect(function(player)
+    createESP(player)
+    createTracer(player)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    removeESP(player)
+    removeTracer(player)
+end)
+
+-- BUTTON EVENTS
+aimButton.MouseButton1Click:Connect(function()
+    aimAssist = not aimAssist
+    aimButton.Text = "Aim Assist : " .. (aimAssist and "ON" or "OFF")
+    aimButton.BackgroundColor3 = aimAssist and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(60, 60, 60)
+end)
+
+fovButton.MouseButton1Click:Connect(function()
+    showFOV = not showFOV
+    fovButton.Text = "FOV Visible : " .. (showFOV and "ON" or "OFF")
+    circle.Visible = showFOV
+    centerDot.Visible = showFOV
+    fovButton.BackgroundColor3 = showFOV and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(60, 60, 60)
 end)
 
 espButton.MouseButton1Click:Connect(function()
@@ -370,7 +418,71 @@ local function getClosestPlayer()
 end
 
 -- MAIN LOOP
-RunService.RenderS Color3.fromRGB(255 * (1 - ratio), 255 * ratio, 0)
+RunService.RenderStepped:Connect(function()
+    -- Mettre à jour la position du FOV circle et du point central au centre du viewport du jeu
+    local viewportSize = Camera.ViewportSize
+    local centerX = viewportSize.X / 2
+    local centerY = viewportSize.Y / 2
+
+    circle.Position = UDim2.new(0, centerX, 0, centerY)
+    centerDot.Position = UDim2.new(0, centerX, 0, centerY)
+
+    -- Aim Assist
+    if aimAssist then
+        local target, distance = getClosestPlayer()
+
+        if target and target.Character then
+            local head = target.Character:FindFirstChild("Head")
+
+            if head then
+                local targetPos = head.Position
+                local currentPos = Camera.CFrame.Position
+                local newCFrame = CFrame.new(currentPos, targetPos)
+                Camera.CFrame = Camera.CFrame:Lerp(newCFrame, aimStrength)
+            end
+        end
+    end
+
+    -- Update Tracers
+    if tracersEnabled then
+        local screenBottom = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+
+        for player, line in pairs(tracerLines) do
+            if player.Character then
+                local root = player.Character:FindFirstChild("HumanoidRootPart")
+                local humanoid = player.Character:FindFirstChild("Humanoid")
+
+                if root and humanoid and humanoid.Health > 0 then
+                    local pos, visible = Camera:WorldToViewportPoint(root.Position)
+
+                    if visible then
+                        line.From = screenBottom
+                        line.To = Vector2.new(pos.X, pos.Y)
+                        line.Visible = true
+                    else
+                        line.Visible = false
+                    end
+                else
+                    line.Visible = false
+                end
+            else
+                line.Visible = false
+            end
+        end
+    end
+
+    -- Update ESP health
+    if espEnabled then
+        for player, esp in pairs(espObjects) do
+            if player.Character then
+                local humanoid = player.Character:FindFirstChild("Humanoid")
+                if humanoid then
+                    local health = math.floor(humanoid.Health)
+                    local maxHealth = humanoid.MaxHealth
+                    esp.healthLabel.Text = health .. "/" .. maxHealth
+
+                    local ratio = health / maxHealth
+                    esp.healthLabel.TextColor3 = Color3.fromRGB(255 * (1 - ratio), 255 * ratio, 0)
                 end
             end
         end
